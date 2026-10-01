@@ -1,43 +1,29 @@
 # Python
-cat > .gitignore <<'EOF'
-# Python
-
-cat > .gitignore <<'EOF'
-# Python
-cat > .gitignore <<'EOF'
-# Python .venv/ __pycache__/ *.pyc # OpenTofu: estado local e variaveis locais nunca vão para o git .terraform/
-
-
-cat > .gitignore <<'EOF'
-# Python
 .venv/
 __pycache__/
 *.pyc
+
 # OpenTofu: estado local e variáveis locais nunca vão para o Git
 .terraform/
-Campo Valor
-Add a README file desmarcado
-Add .gitignore None
-Choose a license None
-Guia Completo — Pipeline Tributário do Zero no Linux
-
-Page 9 of 41
-
 *.tfstate
 *.tfstate.*
 *.tfvars
 crash.log
+
 # Imagens de VM (pesadas e baixáveis)
 *.img
 *.qcow2
 *.iso
+
 # Chaves e segredos
 .env
 *.pem
 id_rsa*
 id_ed25519*
+
 # Arquivos temporários de editores
 *~
+
 # Dados gerados: só o exemplo é versionado
 dados/*
 !dados/exemplo_dados.csv

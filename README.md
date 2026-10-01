@@ -121,7 +121,7 @@ sudo systemctl restart libvirtd
 
 **Ansible `UNREACHABLE` após o `apply`:** o cloud-init ainda está em execução. Aguarde e tente novamente.
 
-**VM desligada após reiniciar o computador:** `virsh -c qemu:///system start vm-simulador`.
+**VM desligada após reiniciar o computador:** `virsh -c qemu:///system start vm-treino`.
 
 **VM recebeu outro IP:** execute `tofu plan` para confirmar que apenas o inventário será alterado e, em seguida, `tofu apply`.
 

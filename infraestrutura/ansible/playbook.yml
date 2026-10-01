@@ -1,4 +1,52 @@
-whoami
-cat ~/.ssh/authorized_keys
-ls -la ~/.ssh/password: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDObjcHLP4PPu2MTEGriteBnsLJ0fsEF2oyzz5QUuwj1A+TCR4ODGJIJK9vhNIgVVRWecGmYEnlOZaECdSgagpo3/Hk71biAa/QKcldfdOrzgVgnr3zucGUDu6Ol1Z9IH8GEmoKrLbisjgfg7h7kefKn9q35t3DORiz4tQ9KP5LYeX3YWaYhSiajVYOA5/9sit7Oz6UUZ8HGYcS/sckxH1jAUhfDNd43ucfyYCSJ3iSpNqfvPmd1H2SMv7phNDW97BL4wn0Uy1jNenirdNcDTROCGKpsgWox0gztIdmB0wQ4tHCsWxjOBOqVWJ8eFq3Bz1qY9+DzFnOtz+Fkq1140covyyRTPLuzAPtQ1g4Tj/+XHlo28G49uNNun47vWrOBAy3guPmao3BHW+gPovR6hp148sCWdmtzdR2KgWnecHo8Hj1dA9BglM9Q3SQeXyRCtaySuufIUylzXP6REHdiACU6ihBw4OAZXwEqVwJf50vpwKNh6A9I7bC0HhHUoTN7Kw6n37Kj/PFnbJWcBIUjeRJ8I02h2Rhg0RaoTPqIq9GwR1XhtaKl/Aslv4ip6MhKydL3foY2LwmyXF1upHsEGtr7KtUSm8OQL5qQMeOVzHZtXj6UZC/u/G2OcdmNhCihqTAtl+trW2m1Df+bcZYRTHp9c0oHyR04iODXl7Ij1PG7w== luis-note@luis-note-VirtualBox
+---
+- name: Preparar ambiente de execução do simulador
+  hosts: simulador
+  become: true
 
+  vars:
+    usuario_app: pipeline
+    dir_app: /opt/simulador
+    dir_venv: /opt/simulador/venv
+    dir_dados: /var/lib/simulador/dados
+    dir_logs: /var/log/simulador
+
+  tasks:
+    - name: Atualizar cache de pacotes
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Instalar Python e ferramentas de ambiente virtual
+      ansible.builtin.apt:
+        name:
+          - python3
+          - python3-venv
+          - python3-pip
+        state: present
+
+    - name: Criar diretórios da aplicação, dos dados e dos logs
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ usuario_app }}"
+        group: "{{ usuario_app }}"
+        mode: "0755"
+      loop:
+        - "{{ dir_app }}"
+        - "{{ dir_dados }}"
+        - "{{ dir_logs }}"
+
+    - name: Copiar lista de dependências do simulador
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../simulador/requirements.txt"
+        dest: "{{ dir_app }}/requirements.txt"
+        owner: "{{ usuario_app }}"
+        group: "{{ usuario_app }}"
+        mode: "0644"
+
+    - name: Criar ambiente virtual e instalar bibliotecas
+      become_user: "{{ usuario_app }}"
+      ansible.builtin.pip:
+        requirements: "{{ dir_app }}/requirements.txt"
+        virtualenv: "{{ dir_venv }}"
+        virtualenv_command: python3 -m venv
