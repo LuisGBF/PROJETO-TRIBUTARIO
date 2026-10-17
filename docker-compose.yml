@@ -1,0 +1,7 @@
+services:
+  simulador:
+    build: ./simulador
+    image: simulador-tributario
+    volumes:
+      - ./dados:/dados
+      
