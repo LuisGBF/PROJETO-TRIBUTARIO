@@ -4,4 +4,11 @@ services:
     image: simulador-tributario
     volumes:
       - ./dados:/dados
-      
+
+  visualizador:
+    image: python:3.12-slim
+    command: python -m http.server 8080 --directory /dados
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dados:/dados:ro
