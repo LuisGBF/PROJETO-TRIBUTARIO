@@ -6,9 +6,9 @@
   vars:
     usuario_app: pipeline
     dir_app: /opt/simulador
-    dir_venv: /opt/simulador/venv
     dir_dados: /var/lib/simulador/dados
     dir_logs: /var/log/simulador
+    arquitetura_docker: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"
 
   tasks:
     - name: Atualizar cache de pacotes
@@ -16,13 +16,58 @@
         update_cache: true
         cache_valid_time: 3600
 
-    - name: Instalar Python e ferramentas de ambiente virtual
+    - name: Instalar pré-requisitos para o repositório do Docker
       ansible.builtin.apt:
         name:
-          - python3
-          - python3-venv
-          - python3-pip
+          - ca-certificates
+          - curl
         state: present
+
+    - name: Criar diretório de chaves do apt
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Baixar a chave GPG oficial do Docker
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: Cadastrar o repositório oficial do Docker
+      ansible.builtin.deb822_repository:
+        name: docker
+        types: deb
+        uris: https://download.docker.com/linux/ubuntu
+        suites: "{{ ansible_facts['distribution_release'] }}"
+        components: stable
+        architectures: "{{ arquitetura_docker }}"
+        signed_by: /etc/apt/keyrings/docker.asc
+        state: present
+
+    - name: Instalar o Docker Engine e plugins
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Garantir que o serviço do Docker está ativo e inicia com a VM
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Permitir que o usuário da aplicação use o Docker sem sudo
+      ansible.builtin.user:
+        name: "{{ usuario_app }}"
+        groups: docker
+        append: true
 
     - name: Criar diretórios da aplicação, dos dados e dos logs
       ansible.builtin.file:
@@ -35,18 +80,3 @@
         - "{{ dir_app }}"
         - "{{ dir_dados }}"
         - "{{ dir_logs }}"
-
-    - name: Copiar lista de dependências do simulador
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../../simulador/requirements.txt"
-        dest: "{{ dir_app }}/requirements.txt"
-        owner: "{{ usuario_app }}"
-        group: "{{ usuario_app }}"
-        mode: "0644"
-
-    - name: Criar ambiente virtual e instalar bibliotecas
-      become_user: "{{ usuario_app }}"
-      ansible.builtin.pip:
-        requirements: "{{ dir_app }}/requirements.txt"
-        virtualenv: "{{ dir_venv }}"
-        virtualenv_command: python3 -m venv
