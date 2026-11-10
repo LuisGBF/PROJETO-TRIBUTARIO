@@ -12,3 +12,11 @@ services:
       - "8080:8080"
     volumes:
       - ./dados:/dados:ro
+
+  spark:
+    build: ./spark
+    image: spark-tributario
+    volumes:
+      - ./dados:/dados
+      - ./spark:/app
+    command: python analise.py
