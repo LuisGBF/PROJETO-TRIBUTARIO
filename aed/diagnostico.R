@@ -13,7 +13,7 @@ length(arquivos)
 brutos <- read_csv(arquivos,
                    col_types = cols(.default = col_character()),
                    id = "arquivo_origem")
-                   )
+                   
 dim(brutos)
 
 glimpse(brutos)
@@ -75,3 +75,11 @@ q3 <- quantile(receita, 0.75)
 limite <- q3 + 3 * (q3 - q1)
 limite
 sum(receita > limite)
+
+# Mesma regra na escala logarítmica, só com as receitas positivas
+log_receita <- log10(receita[receita > 0])
+q1_log <- quantile(log_receita, 0.25)
+q3_log <- quantile(log_receita, 0.75)
+limite_log <- q3_log + 3 * (q3_log - q1_log)
+10^limite_log
+sum(log_receita > limite_log)
