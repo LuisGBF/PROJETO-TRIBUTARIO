@@ -57,7 +57,8 @@ etapa3 <- etapa2 |>
     )
   ) |>
   select(-gastos)
-
+  descartados <- etapa3 |> filter(!is.na(motivo_descarte))
+  validos     <- etapa3 |> filter(is.na(motivo_descarte)) |> select(-motivo_descarte)
 # Preenchendo os valores ausentes
 # Utiliza a mediana de cada valor em relação à receita, por setor
 
