@@ -44,22 +44,19 @@ etapa2 <- etapa1 |>
                                         orders = c("Ymd HMS", "dmY HM"))
   )
 
-# Identificando e separando os outliers 
-
-log_receita <- log10(etapa2$receita_bruta_mensal[etapa2$receita_bruta_mensal > 0])
-q1_log <- quantile(log_receita, 0.25)
-q3_log <- quantile(log_receita, 0.75)
-limite_receita <- 10^(q3_log + 3 * (q3_log - q1_log))
-
+# Uma receita digitada 1000 vezes maior não muda os gastos da empresa,
+# então os gastos ficam abaixo de 1% da receita
 etapa3 <- etapa2 |>
-  mutate(motivo_descarte = case_when(
-    receita_bruta_mensal <= 0             ~ "receita zero ou negativa",
-    receita_bruta_mensal > limite_receita ~ "receita discrepante",
-    .default = NA_character_
-  ))
-
-descartados <- etapa3 |> filter(!is.na(motivo_descarte))
-validos     <- etapa3 |> filter(is.na(motivo_descarte)) |> select(-motivo_descarte)
+  mutate(
+    gastos = rowSums(across(c(folha_salarios_mensal, custo_mercadoria_vendida,
+                              despesas_operacionais)), na.rm = TRUE),
+    motivo_descarte = case_when(
+      receita_bruta_mensal <= 0            ~ "receita zero ou negativa",
+      gastos < 0.01 * receita_bruta_mensal ~ "receita incompatível com os gastos",
+      .default = NA_character_
+    )
+  ) |>
+  select(-gastos)
 
 # Preenchendo os valores ausentes
 # Utiliza a mediana de cada valor em relação à receita, por setor
