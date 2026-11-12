@@ -9,7 +9,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY simulador.py .
+COPY simulador.py carteira_empresas.csv ./
 
 USER app
 ENV PYTHONUNBUFFERED=1
