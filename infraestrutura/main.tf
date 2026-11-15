@@ -80,7 +80,10 @@ resource "local_file" "inventario_ansible" {
     [simulador]
     ${var.nome_vm} ansible_host=${libvirt_domain.vm.network_interface[0].addresses[0]}
 
-    [simulador:vars]
+    [monitoramento]
+    ${var.nome_vm_monitoramento} ansible_host=${libvirt_domain.monitoramento.network_interface[0].addresses[0]}
+
+    [all:vars]
     ansible_user=${var.usuario}
     ansible_ssh_private_key_file=${trimsuffix(var.ssh_public_key_path, ".pub")}
     ansible_python_interpreter=/usr/bin/python3
