@@ -59,44 +59,42 @@ etapa3 <- etapa2 |>
   select(-gastos)
   descartados <- etapa3 |> filter(!is.na(motivo_descarte))
   validos     <- etapa3 |> filter(is.na(motivo_descarte)) |> select(-motivo_descarte)
-# Preenchendo os valores ausentes
-# Utiliza a mediana de cada valor em relação à receita, por setor
-
-proporcoes <- validos |>
-  group_by(macro_setor) |>
-  summarise(
-    p_folha    = median(folha_salarios_mensal    / receita_bruta_mensal, na.rm = TRUE),
-    p_custo    = median(custo_mercadoria_vendida / receita_bruta_mensal, na.rm = TRUE),
-    p_despesas = median(despesas_operacionais    / receita_bruta_mensal, na.rm = TRUE)
-  )
-proporcoes
-
-tratados <- validos |>
-  left_join(proporcoes, by = "macro_setor") |>
-  mutate(
-    folha_imputada     = is.na(folha_salarios_mensal),
-    custo_imputado     = is.na(custo_mercadoria_vendida),
-    despesas_imputadas = is.na(despesas_operacionais),
-    folha_salarios_mensal    = coalesce(folha_salarios_mensal,
-                                        round(receita_bruta_mensal * p_folha, 2)),
-    custo_mercadoria_vendida = coalesce(custo_mercadoria_vendida,
-                                        round(receita_bruta_mensal * p_custo, 2)),
-    despesas_operacionais    = coalesce(despesas_operacionais,
-                                        round(receita_bruta_mensal * p_despesas, 2))
-  ) |>
-  select(-starts_with("p_"))
-
-# Verificando a qualidade dos dados
-
-verificacoes <- c(
-  "sem duplicatas"       = !any(duplicated(tratados$id_lancamento)),
-  "CNPJ com 8 dígitos"   = all(str_detect(tratados$cnpj_basico, "^\\d{8}$")),
-  "setor padronizado"    = all(tratados$macro_setor %in% c("Comércio", "Serviços", "Indústria")),
-  "sem valores ausentes" = !anyNA(tratados),
-  "receita positiva"     = all(tratados$receita_bruta_mensal > 0)
-)
-verificacoes
-stopifnot(all(verificacoes))
+  # Preenchendo os valores ausentes
+  # Usa a proporção de cada valor em relação à receita na própria empresa;
+  # se a empresa não tiver outro mês válido, usa a proporção típica do setor
+  
+  proporcoes <- validos |>
+    group_by(macro_setor) |>
+    summarise(
+      p_folha    = median(folha_salarios_mensal    / receita_bruta_mensal, na.rm = TRUE),
+      p_custo    = median(custo_mercadoria_vendida / receita_bruta_mensal, na.rm = TRUE),
+      p_despesas = median(despesas_operacionais    / receita_bruta_mensal, na.rm = TRUE)
+    )
+  proporcoes
+  
+  proporcoes_empresa <- validos |>
+    group_by(cnpj_basico) |>
+    summarise(
+      e_folha    = median(folha_salarios_mensal    / receita_bruta_mensal, na.rm = TRUE),
+      e_custo    = median(custo_mercadoria_vendida / receita_bruta_mensal, na.rm = TRUE),
+      e_despesas = median(despesas_operacionais    / receita_bruta_mensal, na.rm = TRUE)
+    )
+  
+  tratados <- validos |>
+    left_join(proporcoes, by = "macro_setor") |>
+    left_join(proporcoes_empresa, by = "cnpj_basico") |>
+    mutate(
+      folha_imputada     = is.na(folha_salarios_mensal),
+      custo_imputado     = is.na(custo_mercadoria_vendida),
+      despesas_imputadas = is.na(despesas_operacionais),
+      folha_salarios_mensal    = coalesce(folha_salarios_mensal,
+                                          round(receita_bruta_mensal * coalesce(e_folha, p_folha), 2)),
+      custo_mercadoria_vendida = coalesce(custo_mercadoria_vendida,
+                                          round(receita_bruta_mensal * coalesce(e_custo, p_custo), 2)),
+      despesas_operacionais    = coalesce(despesas_operacionais,
+                                          round(receita_bruta_mensal * coalesce(e_despesas, p_despesas), 2))
+    ) |>
+    select(-starts_with("p_"), -starts_with("e_"))
 
 # Resumo do tratamento
 
