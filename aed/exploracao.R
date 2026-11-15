@@ -13,21 +13,41 @@ tratados <- read_csv("dados/tratados/movimentacao_tratada.csv",
                      )
 glimpse(tratados)
 
+carteira <- read_csv("simulador/carteira_empresas.csv",
+                     col_types = cols(.default = col_character()))
+
 # Novas váriaveis
 
 explorar <- tratados |>
   mutate(
-    receita_anual_estimada = receita_bruta_mensal * 12,
     proporcao_folha = folha_salarios_mensal / receita_bruta_mensal,
-    margem_estimada = (receita_bruta_mensal - folha_salarios_mensal - 
+    margem_estimada = (receita_bruta_mensal - folha_salarios_mensal -
                          custo_mercadoria_vendida - despesas_operacionais) /
-      receita_bruta_mensal,
-    faixa_receita = cut(receita_anual_estimada,
-                        breaks = c(0, 360000, 4800000, 78000000, Inf),
-                        labels = c("até 360 mil", "360 mil a 4,8 mi",
-                                   "4,8 mi a 78 mi", "acima de 78 mi")
-                        )
+      receita_bruta_mensal
   )
+
+# Visão anual por empresa: soma dos 12 meses (RBT12) e Fator R,
+# ligados ao cadastro real da carteira pelo CNPJ
+
+empresas <- explorar |>
+  group_by(cnpj_basico, macro_setor, regime_atual) |>
+  summarise(
+    meses   = n(),
+    rbt12   = sum(receita_bruta_mensal) * 12 / n(),
+    folha12 = sum(folha_salarios_mensal) * 12 / n(),
+    .groups = "drop"
+  ) |>
+  mutate(
+    fator_r = folha12 / rbt12,
+    faixa_rbt12 = cut(rbt12,
+                      breaks = c(0, 360000, 4800000, 78000000, Inf),
+                      labels = c("até 360 mil", "360 mil a 4,8 mi",
+                                 "4,8 mi a 78 mi", "acima de 78 mi"))
+  ) |>
+  left_join(select(carteira, cnpj_basico, porte_empresa, optante_simples),
+            by = "cnpj_basico")
+
+empresas |> count(meses)
 
 # Medidas descritivas 
 
@@ -64,7 +84,11 @@ explorar |>
   adorn_pct_formatting() |>
   adorn_ns()
 
-explorar |> tabyl(faixa_receita, regime_atual)
+# Por empresa: faixa da receita anual x regime
+empresas |> tabyl(faixa_rbt12, regime_atual)
+
+# Só dados reais da Receita: porte declarado x opção pelo Simples
+carteira |> tabyl(porte_empresa, optante_simples)
 
 # Agrupamentos
 
@@ -92,6 +116,16 @@ explorar |>
     registros       = n(),
     receita_mediana = median(receita_bruta_mensal),
     receita_total   = sum(receita_bruta_mensal)
+  )
+
+# Fator R das empresas de Serviços (folha de 12 meses / receita de 12 meses)
+empresas |>
+  filter(macro_setor == "Serviços") |>
+  group_by(regime_atual) |>
+  summarise(
+    empresas        = n(),
+    fator_r_mediano = median(fator_r),
+    acima_de_28     = mean(fator_r >= 0.28)
   )
 
 explorar |>
@@ -158,6 +192,27 @@ g4 <- ggplot(explorar, aes(x = macro_setor, y = margem_estimada)) +
        x = NULL, y = "Margem estimada (% da receita)")
 g4
 ggsave("aed/graficos/04_margem_por_setor.png", g4, width = 8, height = 5, dpi = 150)
+
+# Sazonalidade da receita
+
+sazonal <- explorar |>
+  group_by(cnpj_basico) |>
+  mutate(receita_relativa = receita_bruta_mensal / median(receita_bruta_mensal)) |>
+  group_by(competencia, macro_setor) |>
+  summarise(indice = 100 * median(receita_relativa), .groups = "drop")
+
+g5 <- ggplot(sazonal, aes(x = competencia, y = indice,
+                          color = macro_setor, group = macro_setor)) +
+  geom_hline(yintercept = 100, color = "grey60") +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  scale_color_manual(values = cores_setor) +
+  labs(title = "Sazonalidade da receita por setor",
+       subtitle = "Receita de cada empresa em relação à própria mediana (100 = mês típico)",
+       x = "Competência", y = "Índice da receita", color = "Setor") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+g5
+ggsave("aed/graficos/05_sazonalidade.png", g5, width = 8, height = 5, dpi = 150)
 
 list.files("aed/graficos")
 
