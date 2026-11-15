@@ -33,3 +33,4 @@ dados/*
 .Rhistory
 .RData
 .Ruserdata
+logs/
