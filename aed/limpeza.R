@@ -96,6 +96,19 @@ etapa3 <- etapa2 |>
     ) |>
     select(-starts_with("p_"), -starts_with("e_"))
 
+# Verificando a qualidade dos dados
+  
+  verificacoes <- c(
+    "sem duplicatas"                = !any(duplicated(tratados$id_lancamento)),
+    "um registro por empresa e mês" = !any(duplicated(tratados[c("cnpj_basico", "competencia")])),
+    "CNPJ com 8 dígitos"            = all(str_detect(tratados$cnpj_basico, "^\\d{8}$")),
+    "setor padronizado"             = all(tratados$macro_setor %in% c("Comércio", "Serviços", "Indústria")),
+    "sem valores ausentes"          = !anyNA(tratados),
+    "receita positiva"              = all(tratados$receita_bruta_mensal > 0)
+  )
+  verificacoes
+  stopifnot(all(verificacoes))
+
 # Resumo do tratamento
 
 tibble(
