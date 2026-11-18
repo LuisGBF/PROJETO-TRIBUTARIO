@@ -16,6 +16,7 @@ scp -i "$CHAVE" \
     "$RAIZ/simulador/Dockerfile" \
     "$RAIZ/simulador/.dockerignore" \
     "$RAIZ/simulador/simulador.py" \
+    "$RAIZ/simulador/carteira_empresas.csv" \
     "$RAIZ/simulador/requirements.txt" \
     "$USUARIO@$IP:$DESTINO/"
 

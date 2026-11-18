@@ -1,0 +1,192 @@
+---
+# Monitoramento da VM geradora com Prometheus e Grafana
+
+- name: Instalar o coletor de métricas na VM geradora
+  hosts: simulador
+  become: true
+
+  tasks:
+    - name: Instalar o node_exporter, que expõe CPU, memória e disco na porta 9100
+      ansible.builtin.apt:
+        name: prometheus-node-exporter
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Garantir que o node_exporter está ativo e inicia com a VM
+      ansible.builtin.service:
+        name: prometheus-node-exporter
+        state: started
+        enabled: true
+
+- name: Preparar a VM de monitoramento com Prometheus e Grafana
+  hosts: monitoramento
+  become: true
+
+  vars:
+    usuario_app: pipeline
+    dir_monitoramento: /opt/monitoramento
+    ip_geradora: "{{ hostvars[groups['simulador'][0]]['ansible_host'] }}"
+    arquitetura_docker: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"
+
+  tasks:
+    - name: Instalar pré-requisitos para o repositório do Docker
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Criar diretório de chaves do apt
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Baixar a chave GPG oficial do Docker
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: Cadastrar o repositório oficial do Docker
+      ansible.builtin.deb822_repository:
+        name: docker
+        types: deb
+        uris: https://download.docker.com/linux/ubuntu
+        suites: "{{ ansible_facts['distribution_release'] }}"
+        components: stable
+        architectures: "{{ arquitetura_docker }}"
+        signed_by: /etc/apt/keyrings/docker.asc
+        state: present
+
+    - name: Instalar o Docker Engine e o plugin do Compose
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Garantir que o serviço do Docker está ativo e inicia com a VM
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Permitir que o usuário use o Docker sem sudo
+      ansible.builtin.user:
+        name: "{{ usuario_app }}"
+        groups: docker
+        append: true
+
+    - name: Criar os diretórios do monitoramento
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ dir_monitoramento }}"
+        - "{{ dir_monitoramento }}/prometheus"
+        - "{{ dir_monitoramento }}/grafana/provisioning/datasources"
+        - "{{ dir_monitoramento }}/grafana/provisioning/dashboards"
+        - "{{ dir_monitoramento }}/grafana/dashboards"
+
+    - name: Configurar o Prometheus para coletar as métricas da VM geradora
+      ansible.builtin.copy:
+        dest: "{{ dir_monitoramento }}/prometheus/prometheus.yml"
+        mode: "0644"
+        content: |
+          global:
+            scrape_interval: 15s
+
+          scrape_configs:
+            - job_name: vm-geradora
+              static_configs:
+                - targets: ["{{ ip_geradora }}:9100"]
+      notify: Reiniciar o Prometheus
+
+    - name: Cadastrar o Prometheus como fonte de dados do Grafana
+      ansible.builtin.copy:
+        dest: "{{ dir_monitoramento }}/grafana/provisioning/datasources/prometheus.yml"
+        mode: "0644"
+        content: |
+          apiVersion: 1
+          datasources:
+            - name: Prometheus
+              uid: prometheus
+              type: prometheus
+              access: proxy
+              url: http://prometheus:9090
+              isDefault: true
+      notify: Reiniciar o Grafana
+
+    - name: Indicar ao Grafana a pasta dos painéis
+      ansible.builtin.copy:
+        dest: "{{ dir_monitoramento }}/grafana/provisioning/dashboards/paineis.yml"
+        mode: "0644"
+        content: |
+          apiVersion: 1
+          providers:
+            - name: pipeline
+              type: file
+              options:
+                path: /var/lib/grafana/dashboards
+      notify: Reiniciar o Grafana
+
+    - name: Copiar o painel da VM geradora
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../monitoramento/painel_vm_geradora.json"
+        dest: "{{ dir_monitoramento }}/grafana/dashboards/painel_vm_geradora.json"
+        mode: "0644"
+
+    - name: Criar o docker-compose do Prometheus e do Grafana
+      ansible.builtin.copy:
+        dest: "{{ dir_monitoramento }}/docker-compose.yml"
+        mode: "0644"
+        content: |
+          services:
+            prometheus:
+              image: prom/prometheus:v3.5.0
+              restart: unless-stopped
+              ports:
+                - "9090:9090"
+              volumes:
+                - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+                - prometheus-dados:/prometheus
+
+            grafana:
+              image: grafana/grafana:12.0.0
+              restart: unless-stopped
+              ports:
+                - "3000:3000"
+              volumes:
+                - ./grafana/provisioning:/etc/grafana/provisioning:ro
+                - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+                - grafana-dados:/var/lib/grafana
+
+          volumes:
+            prometheus-dados:
+            grafana-dados:
+
+    - name: Subir o Prometheus e o Grafana
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: "{{ dir_monitoramento }}"
+      register: subida
+      changed_when: "'Started' in subida.stderr or 'Recreated' in subida.stderr"
+
+  handlers:
+    - name: Reiniciar o Prometheus
+      ansible.builtin.command:
+        cmd: docker compose restart prometheus
+        chdir: "{{ dir_monitoramento }}"
+
+    - name: Reiniciar o Grafana
+      ansible.builtin.command:
+        cmd: docker compose restart grafana
+        chdir: "{{ dir_monitoramento }}"

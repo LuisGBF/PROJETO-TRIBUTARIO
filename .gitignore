@@ -27,3 +27,11 @@ id_ed25519*
 # Dados gerados: só o exemplo é versionado
 dados/*
 !dados/exemplo_dados.csv
+
+# R e RStudio
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+logs/
+Rplots.pdf

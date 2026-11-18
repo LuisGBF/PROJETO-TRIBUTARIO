@@ -57,3 +57,9 @@ variable "ssh_public_key_path" {
   type        = string
   default     = "~/.ssh/vm_pipeline.pub"
 }
+
+variable "nome_vm_monitoramento" {
+  description = "Nome da máquina virtual de monitoramento"
+  type        = string
+  default     = "vm-monitoramento"
+}
