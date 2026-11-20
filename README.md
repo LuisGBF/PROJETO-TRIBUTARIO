@@ -3,7 +3,7 @@
 **Automação e Escalabilidade de Pipelines de Big Data e Análise de Dados**
 *Diagnóstico Automatizado de Enquadramento Tributário para Consultoria Contábil*
 
-Pipeline que compara a carga tributária estimada de empresas nos regimes Simples Nacional, Lucro Presumido e Lucro Real. O repositório reúne a infraestrutura como código (VMs e Docker), o simulador de movimentação financeira, o tratamento e a análise exploratória em R, o monitoramento com Prometheus e Grafana e a análise da base pública de CNPJ com Apache Spark.
+Pipeline que compara a carga tributária estimada de empresas nos regimes Simples Nacional, Lucro Presumido e Lucro Real. O repositório reúne a infraestrutura como código (VMs e Docker), o simulador de movimentação financeira, o tratamento e a análise exploratória em R, o monitoramento com Prometheus e Grafana e o cálculo tributário com Apache Spark, que gera a base do Machine Learning.
 
 | Etapa | Ferramenta | Função |
 |---|---|---|
@@ -19,7 +19,8 @@ Pipeline que compara a carga tributária estimada de empresas nos regimes Simple
 | Diagnóstico, limpeza e exploração | R (tidyverse) | Trata os dados brutos e gera `dados/tratados` e os gráficos |
 | Integração | `pipeline.sh` | Executa as etapas em sequência, com registro de execução e parada em caso de falha |
 | Monitoramento | node_exporter + Prometheus + Grafana | Acompanha CPU, memória, disco e disponibilidade da VM geradora |
-| Processamento | Apache Spark (PySpark, contêiner) | DataFrames, agrupamentos e Spark SQL sobre a base do CNPJ |
+| Cálculo tributário | Apache Spark (PySpark, contêiner) | Estima os tributos nos três regimes, monta o modelo estrela e gera a base do Machine Learning |
+| Machine Learning | Google Colab | Random Forest para prever o regime mais barato (em desenvolvimento) |
 
 ## Fluxo do pipeline
 
@@ -32,11 +33,15 @@ rsync  ──►  dados/brutos            (dados brutos, nunca alterados)
 aed/diagnostico.R                   (contagem dos problemas de qualidade)
 aed/limpeza.R  ──►  dados/tratados  (dados tratados + registros descartados com o motivo)
 aed/exploracao.R  ──►  aed/graficos (medidas, agrupamentos e gráficos)
+   ▼
+spark/calculo_tributario.py  ──►  dados/analitico  (modelo estrela + simulação tributária por empresa)
+   ▼
+Google Colab                      (Machine Learning com simulacao_tributaria.csv)
 
 VM de monitoramento: Prometheus coleta as métricas da VM geradora a cada 15 s; Grafana exibe o painel
 ```
 
-O `pipeline.sh` executa as etapas de geração, coleta e tratamento com um único comando e grava um log de cada execução em `logs/`.
+O `pipeline.sh` executa as etapas de geração, coleta, tratamento e cálculo tributário com um único comando e grava um log de cada execução em `logs/`.
 
 ## Estrutura
 
@@ -67,7 +72,10 @@ spark/
 ├── Dockerfile                # Python + Java + PySpark
 ├── requirements.txt
 ├── converter.py              # ajusta timestamps do Parquet para o Spark
-├── analise.py                # análise principal (DataFrames e Spark SQL)
+├── calculo_tributario.py     # tributos nos três regimes, modelo estrela e base do Machine Learning
+├── parametros/
+│   └── simples_nacional.csv  # faixas, alíquotas e parcelas a deduzir dos Anexos I a V
+├── analise.py                # análise da base do CNPJ (DataFrames e Spark SQL)
 ├── limpeza.py                # exemplo de tratamento com Spark
 ├── diagnostico.py            # exemplo de verificação de qualidade com Spark
 └── resultados_analise.txt    # saída registrada da análise
@@ -87,6 +95,7 @@ Os dados não são versionados: o `.gitignore` bloqueia tudo em `dados/`, exceto
 - **Recorte:** empresas ativas, matrizes, sediadas em São Paulo, entidades empresariais não-MEI (1.513.185 empresas).
 - **Como gerar:** execute o notebook do recorte no Google Colab. Ele baixa os arquivos da Receita, trata os dados e salva `cnpj_sp_recorte_tributario.parquet`.
 - **Carteira:** `simulador/carteira_empresas.csv` guarda 1.000 empresas reais de Comércio, Serviços e Indústria sorteadas do recorte, com CNPJ básico, CNAE, porte e opção pelo Simples. É versionada, então o pipeline não depende do Colab para rodar.
+- **Base analítica:** o Spark grava em `dados/analitico/` o modelo estrela e a tabela `simulacao_tributaria` (uma linha por empresa), em Parquet e em CSV. O CSV é o arquivo usado no Machine Learning.
 - **Valores financeiros:** a base pública não traz receita, folha nem custos. O simulador gera esses valores de forma fictícia para as empresas da carteira, ligadas à base por `cnpj_basico`. Resultados que usam esses campos são demonstração do método, e não diagnóstico de empresas reais.
 
 ## Pré-requisitos
@@ -154,10 +163,10 @@ Os playbooks são idempotentes: uma segunda execução termina com `changed=0`.
 Na raiz do projeto, com as VMs ligadas:
 
 ```bash
-# Gera as competências na VM, copia os brutos e roda o tratamento em R
+# Gera as competências na VM, copia os brutos, roda o tratamento em R e o cálculo no Spark
 ./pipeline.sh 2025-11 2025-12 2026-01 2026-02 2026-03 2026-04 2026-05 2026-06 2026-07 2026-08 2026-09 2026-10
 
-# Sem competências: só copia os arquivos novos da VM e roda o tratamento
+# Sem competências: só copia os arquivos novos da VM e roda o tratamento e o cálculo
 ./pipeline.sh
 ```
 
@@ -168,6 +177,9 @@ Na raiz do projeto, com as VMs ligadas:
 | 3. Diagnóstico | `Rscript aed/diagnostico.R` | Contagem de duplicatas, ausentes, formatos, categorias, CNPJs e discrepantes |
 | 4. Limpeza | `Rscript aed/limpeza.R` | `dados/tratados/movimentacao_tratada.csv` e `registros_descartados.csv` |
 | 5. Exploração | `Rscript aed/exploracao.R` | Tabelas e gráficos em `aed/graficos` |
+| 6. Cálculo tributário | `docker compose run --rm -T spark python calculo_tributario.py` | Modelo estrela e `simulacao_tributaria` em `dados/analitico` |
+
+Na primeira execução, a etapa 6 também converte o recorte da Receita para o Spark (`converter.py`). A opção `-T` roda o contêiner sem terminal interativo, para o log sair limpo.
 
 **Registros de execução:** tudo o que aparece na tela é gravado em `logs/pipeline_AAAAMMDD_HHMMSS.log`.
 
@@ -184,6 +196,29 @@ Na raiz do projeto, com as VMs ligadas:
 | `exploracao.R` | Medidas descritivas, frequências, agrupamentos, correlação de Spearman, receita dos últimos 12 meses (RBT12), Fator R, porte real da carteira e gráficos |
 
 Os scripts também podem ser abertos no RStudio pelo projeto `PROJETO-TRIBUTARIO.Rproj`.
+
+## Cálculo tributário no Spark
+
+O `spark/calculo_tributario.py` lê os dados tratados pelo R e o recorte da Receita, soma os 12 meses de cada empresa (RBT12, folha, custos, despesas e compras) e estima o imposto anual nos três regimes.
+
+| Regime | Como é estimado |
+|---|---|
+| Simples Nacional | Anexo pelo setor: Comércio no I, Indústria no II e Serviços no III (Fator R de 28% ou mais) ou no V. Alíquota efetiva = (RBT12 × alíquota nominal − parcela a deduzir) ÷ RBT12, com as faixas de `spark/parametros/simples_nacional.csv`. Só até R$ 4,8 milhões por ano |
+| Lucro Presumido | IRPJ de 15% (mais 10% sobre a base acima de R$ 240 mil por ano) e CSLL de 9% sobre a receita presumida: 8% e 12% no Comércio e na Indústria, 32% nos Serviços, com percentuais 10% maiores sobre a parte da receita acima de R$ 5 milhões (LC 224/2025). Mais PIS/Cofins de 3,65%, INSS de 20% da folha e ICMS de 18% sobre a receita menos o custo das mercadorias (ou ISS de 5% nos Serviços). Só até R$ 78 milhões por ano |
+| Lucro Real | PIS/Cofins de 9,25% com crédito sobre as compras, INSS e ICMS ou ISS como no Presumido, e IRPJ e CSLL sobre o lucro (zero quando há prejuízo) |
+
+| Saída em `dados/analitico/` | Conteúdo |
+|---|---|
+| `dim_empresa/` | Cadastro real da Receita das empresas da carteira (CNAE, setor, porte, capital social, idade e opção pelo Simples) |
+| `dim_tempo/` | Competências, com ano, mês e trimestre |
+| `fato_movimentacao/` | Lançamentos mensais tratados, ligados às dimensões por `cnpj_basico` e `competencia` |
+| `simulacao_tributaria/` e `simulacao_tributaria.csv` | Uma linha por empresa: valores anuais, imposto em cada regime, `regime_mais_barato`, economia estimada e carga tributária |
+
+No fim, o script imprime dois resumos feitos com Spark SQL: o regime atual comparado ao mais barato e a economia estimada por setor.
+
+**Conferência:** para uma empresa de serviços com receita de R$ 600 mil por ano e folha de R$ 192 mil (Fator R de 32%, Anexo III, faixa 3), o script calcula R$ 63.360 no Simples, R$ 136.380 no Presumido e R$ 159.066 no Real, os mesmos valores da conta feita à mão.
+
+**Limitações:** é uma estimativa simplificada para comparar regimes, e não o cálculo fiscal oficial. O cálculo ainda não verifica as vedações ao Simples (atividades impedidas, natureza jurídica e sócios), e os valores financeiros vêm do simulador.
 
 ## Monitoramento
 
@@ -234,14 +269,18 @@ Pré-requisito: Docker com o plugin Compose.
 # Gerar dados do simulador em dados/
 docker compose run --rm simulador --registros 50
 
-# Análise com Spark sobre a base do CNPJ
-# 1. Coloque cnpj_sp_recorte_tributario.parquet em dados/
-# 2. Converta os timestamps (o pandas grava nanossegundos; o Spark 3.5 lê microssegundos)
+# Spark
+# 1. Coloque cnpj_sp_recorte_tributario.parquet em dados/ e construa a imagem
 docker compose build spark
-docker compose run --rm --user "$(id -u):$(id -g)" spark python converter.py
-# 3. Execute a análise
+# 2. Converta os timestamps (o pandas grava nanossegundos; o Spark 3.5 lê microssegundos)
+docker compose run --rm spark python converter.py
+# 3. Calcule os tributos (usa dados/tratados/movimentacao_tratada.csv, gerado pelo R)
+docker compose run --rm spark python calculo_tributario.py
+# 4. Análise da base do CNPJ
 docker compose run --rm spark python analise.py
 ```
+
+O contêiner do Spark roda com o usuário `spark`, de UID 1000, o mesmo número do usuário do notebook. Assim, os arquivos gravados em `dados/` não ficam com dono root. Se o seu UID for outro (confira com `id -u`), troque o número no `spark/Dockerfile`.
 
 O `analise.py` carrega o Parquet, cria colunas derivadas, aplica filtros e agrupamentos com DataFrames, executa consultas Spark SQL e imprime o plano de execução e o tempo com 1 e 8 partições. A saída de uma execução está em `spark/resultados_analise.txt`.
 
@@ -285,6 +324,12 @@ sudo systemctl restart libvirtd
 **`FALHA` no `pipeline.sh`:** abra o log mais recente em `logs/` e veja a última etapa anunciada antes da falha. Na etapa 1 ou 2, confira se a VM geradora está ligada; na etapa 4, veja qual verificação de qualidade deu `FALSE`.
 
 **Spark: `Illegal Parquet type: INT64 (TIMESTAMP(NANOS,false))`:** o Parquet foi gravado pelo pandas com datas em nanossegundos. Execute `converter.py` e leia o arquivo `_spark.parquet`.
+
+**Spark: `LoginException` com `invalid null input: name`:** o contêiner foi iniciado com `--user` e um UID que não existe na imagem. Rode sem `--user`; a imagem já usa o usuário `spark`.
+
+**Spark: `ps: command not found`:** aviso inofensivo, porque a imagem `python:3.12-slim` não traz o comando `ps`.
+
+**`No space left on device`:** o disco do notebook encheu (as imagens do Docker e os discos das VMs ocupam vários GB). Confira com `df -h /` e `docker system df`. Para liberar espaço, apague o cache de construção com `docker builder prune -a` e as VMs que não são mais usadas com `virsh -c qemu:///system undefine NOME --remove-all-storage`.
 
 ## Equipe
 

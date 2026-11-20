@@ -12,4 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY *.py .
 
+# Usuário comum com o mesmo número (UID) do usuário do notebook: os arquivos
+# gravados em dados/ ficam com o mesmo dono, e não com o root
+RUN useradd --uid 1000 --create-home spark
+USER spark
+
 ENV PYTHONUNBUFFERED=1
