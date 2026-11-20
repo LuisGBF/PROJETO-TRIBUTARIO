@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pipeline: gera os dados na VM, copia para o notebook e trata em R
+# Pipeline: gera os dados na VM, copia para o notebook, trata em R e calcula os tributos no Spark
 # Uso: ./pipeline.sh 2025-11 2025-12 ...   (competências a gerar na VM)
 
 set -e
@@ -29,5 +29,11 @@ Rscript aed/limpeza.R
 
 echo "== $(date '+%d/%m/%Y %H:%M:%S') 5. Exploração em R"
 Rscript aed/exploracao.R
+
+echo "== $(date '+%d/%m/%Y %H:%M:%S') 6. Cálculo tributário no Spark"
+if [ ! -f dados/cnpj_sp_recorte_tributario_spark.parquet ]; then
+    docker compose run --rm -T spark python converter.py
+fi
+docker compose run --rm -T spark python calculo_tributario.py
 
 echo "== $(date '+%d/%m/%Y %H:%M:%S') Pipeline concluído com sucesso"
